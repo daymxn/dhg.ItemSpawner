@@ -1,0 +1,57 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <PropertyGroup>
+        <TargetFramework>netstandard2.1</TargetFramework>
+        <AssemblyName>daymxn.DHG.ItemSpawner</AssemblyName>
+        <Product>DHG Item Spawner</Product>
+        <Version>1.0.0</Version>
+        <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+        <LangVersion>latest</LangVersion>
+        <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+        <RestoreAdditionalProjectSources>
+            https://api.nuget.org/v3/index.json;
+            https://nuget.bepinex.dev/v3/index.json;
+            https://nuget.samboy.dev/v3/index.json
+        </RestoreAdditionalProjectSources>
+        <RootNamespace>daymxn.DHG.ItemSpawner</RootNamespace>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="BepInEx.Analyzers" Version="1.*" PrivateAssets="all"/>
+        <PackageReference Include="BepInEx.Core" Version="5.*"/>
+        <PackageReference Include="BepInEx.PluginInfoProps" Version="2.*"/>
+        <PackageReference Include="UnityEngine.Modules" Version="2022.3.41" IncludeAssets="compile"/>
+        <PackageReference Include="rainbowblood.UniverseLib.Mono" Version="2.*">
+            <NoWarn>NU1701</NoWarn>
+        </PackageReference>
+    </ItemGroup>
+
+    <Target Name="CopyOutput" AfterTargets="Build">
+        <ItemGroup>
+            <OutputFiles Include="$(TargetDir)$(TargetFileName);$(TargetDir)UniverseLib*.dll"/>
+        </ItemGroup>
+
+        <Copy SourceFiles="@(OutputFiles)" DestinationFolder="$(TargetDir)$(RootNamespace)" SkipUnchangedFiles="true"/>
+    </Target>
+
+    <ItemGroup Condition="'$(TargetFramework.TrimEnd(`0123456789`))' == 'net'">
+        <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.2" PrivateAssets="all"/>
+    </ItemGroup>
+
+    <ItemGroup>
+        <EmbeddedResource Include="assets\notification.wav"/>
+    </ItemGroup>
+
+    <ItemGroup>
+        <Reference Include="GameAssembly">
+            <HintPath>lib/Assembly-CSharp.dll</HintPath>
+            <Private>false</Private>
+        </Reference>
+    </ItemGroup>
+    <ItemGroup>
+        <Reference Include="UnityEngine.UI">
+            <HintPath>lib/UnityEngine.UI.dll</HintPath>
+            <Private>false</Private>
+        </Reference>
+    </ItemGroup>
+
+</Project>
