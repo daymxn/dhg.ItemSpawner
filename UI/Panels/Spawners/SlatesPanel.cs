@@ -2,7 +2,6 @@
 using System.Collections.Generic;
 using daymxn.DHG.ItemSpawner.game;
 using UnityEngine;
-using UniverseLib.UI;
 using Vector2 = UnityEngine.Vector2;
 
 namespace daymxn.DHG.ItemSpawner.ui.Panels.Spawners;
@@ -10,7 +9,7 @@ namespace daymxn.DHG.ItemSpawner.ui.Panels.Spawners;
 /// <summary>
 ///   Panel for spawning in Support Slates.
 /// </summary>
-public class SlatesPanel(UIBase owner)
+public class SlatesPanel(GameObject owner)
   : AffixSpawningPanel<SupportSlate.Name, SupportSlate>(owner) {
   public override string Name => "Support Slates";
   protected override Vector2 PivotOffset => new(700, -100);

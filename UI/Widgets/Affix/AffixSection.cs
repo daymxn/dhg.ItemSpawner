@@ -1,9 +1,10 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Linq;
 using daymxn.DHG.ItemSpawner.game;
+using daymxn.DHG.ItemSpawner.ui.Native;
 using UnityEngine;
 using UnityEngine.UI;
-using UniverseLib.UI;
 
 namespace daymxn.DHG.ItemSpawner.ui.Widgets.Affix;
 
@@ -20,7 +21,7 @@ public class AffixSection {
   private readonly GameObject _container;
   private readonly AffixQualityDict _pool;
   private RandomAffix _affix;
-  private Dropdown _affixDropdown;
+  private DropdownBinding<RandomAffix> _affixDropdown;
   private bool _deepChaos;
   private Toggle _deeplyChaosToggle;
 
@@ -30,7 +31,8 @@ public class AffixSection {
   private Quality _parentQuality;
   private Quality _quality;
 
-  private Dropdown _qualityDropdown;
+  private DropdownBinding<Quality> _qualityDropdown;
+  private bool _updatingSlider;
   private float _value;
   private Slider _valueSlider;
   private Text _valueText;
@@ -45,8 +47,15 @@ public class AffixSection {
     _container = container;
     _parentQuality = parentQuality;
     _pool = pool;
-    _quality = parentQuality;
-    _affix = pool[_quality].First();
+    var initial = GameData.Qualities.All
+      .Where(quality => quality <= parentQuality)
+      .LastOrDefault(quality => pool.TryGetValue(quality, out var affixes) && affixes.Count > 0);
+    if (!pool.TryGetValue(initial, out var initialAffixes) || initialAffixes.Count == 0) {
+      throw new InvalidOperationException("The affix pool has no selectable affixes.");
+    }
+
+    _quality = initial;
+    _affix = initialAffixes.First();
   }
 
   /// <summary>
@@ -98,11 +107,11 @@ public class AffixSection {
     var layout = UIFactory.CreateUIObject("Container", _container);
     UIFactory.SetLayoutGroup<HorizontalLayoutGroup>(
       layout,
-      forceHeight: false,
-      forceWidth: false,
-      childControlHeight: true,
-      childControlWidth: true,
-      spacing: 10
+      false,
+      false,
+      true,
+      true,
+      10
     );
 
     var label = UIFactory.CreateLabel(layout, "Title", "Quality");
@@ -115,7 +124,8 @@ public class AffixSection {
       "Quality",
       14,
       OnQualityChanged,
-      []
+      [],
+      _quality
     );
     UIFactory.SetLayoutElement(dropdown, 200, 25, 1);
 
@@ -126,11 +136,11 @@ public class AffixSection {
     var layout = UIFactory.CreateUIObject("Container", _container);
     UIFactory.SetLayoutGroup<HorizontalLayoutGroup>(
       layout,
-      forceHeight: false,
-      forceWidth: false,
-      childControlHeight: true,
-      childControlWidth: true,
-      spacing: 10
+      false,
+      false,
+      true,
+      true,
+      10
     );
 
     var label = UIFactory.CreateLabel(layout, "Title", "Affix");
@@ -143,7 +153,8 @@ public class AffixSection {
       "Affix",
       14,
       OnAffixChanged,
-      []
+      [],
+      _affix
     );
     UIFactory.SetLayoutElement(dropdown, 400, 25, 1);
 
@@ -154,11 +165,11 @@ public class AffixSection {
     var layout = UIFactory.CreateUIObject("Layout", _container);
     UIFactory.SetLayoutGroup<HorizontalLayoutGroup>(
       layout,
-      forceHeight: false,
-      forceWidth: false,
-      childControlHeight: true,
-      childControlWidth: true,
-      spacing: 10
+      false,
+      false,
+      true,
+      true,
+      10
     );
 
     _valueText = UIFactory.CreateLabel(layout, "ValueSlider", "0");
@@ -168,6 +179,7 @@ public class AffixSection {
     UIFactory.SetLayoutElement(slider, 200, 25, 1);
 
     _valueSlider.onValueChanged.AddListener(newValue => {
+      if (_updatingSlider) return;
       _value = newValue;
 
       UpdateSliderValueText();
@@ -195,17 +207,17 @@ public class AffixSection {
     UIFactory.SetLayoutElement(toggle, 20, 20);
   }
 
-  private void OnQualityChanged(int qualityIndex) {
+  private void OnQualityChanged(Quality quality) {
     if (!_drawn) return;
 
-    _quality = GameData.Qualities.FromInt(qualityIndex);
+    _quality = quality;
     UpdateValidAffixes();
   }
 
-  private void OnAffixChanged(int index) {
+  private void OnAffixChanged(RandomAffix affix) {
     if (!_drawn) return;
 
-    _affix = _pool[_quality][index];
+    _affix = affix;
 
     UpdateSliderValues();
   }
@@ -214,14 +226,21 @@ public class AffixSection {
   ///   Updates the quality dropdown options, limited to the parent quality.
   /// </summary>
   private void UpdateValidQualities() {
-    _qualityDropdown.ClearOptions();
+    var validQualities = GameData.Qualities.All
+      .TakeWhile(it => it <= _parentQuality)
+      .Where(quality => _pool.TryGetValue(quality, out var values) && values.Count > 0)
+      .ToList();
+    if (validQualities.Count == 0) {
+      _qualityDropdown.SetOptions([], default);
+      return;
+    }
 
-    var validQualities = GameData.Qualities.All.TakeWhile(it => it <= _parentQuality);
-    _qualityDropdown.AddOptions(
-      validQualities.Select(it => it.GetNameStr()).ToList()
+    if (!validQualities.Contains(_quality)) _quality = validQualities[^1];
+    _qualityDropdown.SetOptions(
+      validQualities.Select(value =>
+        new DropdownOption<Quality>(value.GetNameStr(), value)),
+      _quality
     );
-    _quality = _quality > _parentQuality ? _parentQuality : _quality;
-    _qualityDropdown.SetValueWithoutNotify(_quality.GetValue());
 
     if (!_drawn) return;
     UpdateValidAffixes();
@@ -232,18 +251,18 @@ public class AffixSection {
   ///   the selected quality.
   /// </summary>
   private void UpdateValidAffixes() {
-    _affixDropdown.ClearOptions();
-    var affixes = _pool[_quality];
-    _affixDropdown.AddOptions(
-      affixes
-        .Select(it => it.GetNameStr())
-        .ToList()
-    );
+    if (!_pool.TryGetValue(_quality, out var affixes) || affixes.Count == 0) {
+      _affixDropdown.SetOptions([], null);
+      return;
+    }
 
     // replace affix with the one for this quality, or fallback to the first affix if it doesn't exist in this quality
     // some affixes are quality exclusive
     _affix = affixes.FirstOrDefault(it => it.IsSameTypeAffix(_affix)) ?? affixes.First();
-    _affixDropdown.SetValueWithoutNotify(affixes.IndexOf(_affix));
+    _affixDropdown.SetOptions(
+      CreateAffixOptions(affixes),
+      _affix
+    );
 
     if (!_drawn) return;
     UpdateSliderValues();
@@ -253,9 +272,7 @@ public class AffixSection {
   ///   Updates the slider values to respect the current affix.
   /// </summary>
   private void UpdateSliderValues() {
-    _numType = _affix.IsCompositeAffix()
-      ? AttributeData.NumType.Float
-      : AttributeData.GetAttributeNumType(_affix.GetAttributeName());
+    _numType = GetEffectiveNumType(_affix);
 
     var max = _affix.GetRollMax();
     var min = _affix.GetRollMin();
@@ -265,14 +282,66 @@ public class AffixSection {
       _numType = AttributeData.NumType.Percent;
     }
 
-    _value = Math.Clamp(_value, min, max);
+    _updatingSlider = true;
+    try {
+      // Change integer rounding before assigning a fractional range. Otherwise a
+      // previous integer affix makes ranges such as 0.04-0.05 collapse to 0.
+      _valueSlider.wholeNumbers = _numType == AttributeData.NumType.Int;
+      _valueSlider.minValue = min;
+      _valueSlider.maxValue = max;
 
-    _valueSlider.minValue = min;
-    _valueSlider.maxValue = max;
-    _valueSlider.SetValueWithoutNotify(_value);
-    _valueSlider.wholeNumbers = _numType == AttributeData.NumType.Int;
+      // Configure the complete range before assigning its initial value. Unity's
+      // min/max setters clamp the old value and normally emit onValueChanged.
+      _value = min;
+      _valueSlider.SetValueWithoutNotify(_value);
+    } finally {
+      _updatingSlider = false;
+    }
 
     UpdateSliderValueText();
+  }
+
+  private static AttributeData.NumType GetEffectiveNumType(RandomAffix affix) {
+    // Inc and More are percentage conversions even when the underlying
+    // attribute (maximum mana, maximum life, and similar values) is an integer.
+    if (affix.GetConvertType() != NumConvertType.Add) {
+      return AttributeData.NumType.Percent;
+    }
+
+    return affix.IsCompositeAffix()
+      ? AttributeData.NumType.Float
+      : AttributeData.GetAttributeNumType(affix.GetAttributeName());
+  }
+
+  private static DropdownOption<RandomAffix>[] CreateAffixOptions(
+    IReadOnlyCollection<RandomAffix> affixes
+  ) {
+    var namedAffixes = affixes
+      .Select(affix => (Affix: affix, Name: affix.GetNameStr()))
+      .ToArray();
+    var duplicateNames = namedAffixes
+      .GroupBy(entry => entry.Name)
+      .Where(group => group.Count() > 1)
+      .Select(group => group.Key)
+      .ToHashSet();
+
+    return namedAffixes
+      .Select(entry => new DropdownOption<RandomAffix>(
+        duplicateNames.Contains(entry.Name)
+          ? $"{entry.Name} ({GetConversionLabel(entry.Affix)})"
+          : entry.Name,
+        entry.Affix
+      ))
+      .ToArray();
+  }
+
+  private static string GetConversionLabel(RandomAffix affix) {
+    return affix.GetConvertType() switch {
+      NumConvertType.Add => "Flat",
+      NumConvertType.Inc => "%",
+      NumConvertType.More => "More %",
+      _ => affix.GetConvertType().ToString()
+    };
   }
 
   /// <summary>

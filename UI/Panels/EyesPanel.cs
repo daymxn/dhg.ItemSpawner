@@ -1,8 +1,8 @@
 ﻿using System.Linq;
 using daymxn.DHG.ItemSpawner.game;
+using daymxn.DHG.ItemSpawner.ui.Native;
 using UnityEngine;
 using UnityEngine.UI;
-using UniverseLib.UI;
 using Vector2 = UnityEngine.Vector2;
 
 namespace daymxn.DHG.ItemSpawner.ui.Panels;
@@ -10,10 +10,10 @@ namespace daymxn.DHG.ItemSpawner.ui.Panels;
 /// <summary>
 ///   Panel for spawning in Abyss Eyes.
 /// </summary>
-public class EyesPanel(UIBase owner) : GamePanel(owner) {
-  private Dropdown[] _powerDropdowns;
+public class EyesPanel(GameObject owner) : GamePanel(owner) {
+  private DropdownBinding<AbyssPower.Name>[] _powerDropdowns;
 
-  private Dropdown _qualityDropdown;
+  private DropdownBinding<Quality> _qualityDropdown;
   public override string Name => "Abyss Eyes";
   public override int MinWidth => 300;
   public override int MinHeight => 450;
@@ -21,15 +21,14 @@ public class EyesPanel(UIBase owner) : GamePanel(owner) {
   public override Vector2 DefaultAnchorMax => new(1f, .5f);
   public override bool CanDragAndResize => true;
   public override bool IncludeInNavbar => true;
-  protected override bool IncludeBodyFitter => true;
-
   protected override bool PivotToAnchor => true;
   protected override Vector2 PivotOffset => new(-100, 0);
 
   public override bool RequiresGameData => true;
 
   protected override void CreateBodyContent() {
-    _powerDropdowns = new Dropdown[GameData.Qualities.Highest.GetPowerSlots()];
+    _powerDropdowns =
+      new DropdownBinding<AbyssPower.Name>[GameData.Qualities.Highest.GetPowerSlots()];
 
     AddQualityDropdown();
 
@@ -41,29 +40,29 @@ public class EyesPanel(UIBase owner) : GamePanel(owner) {
     var container = UIFactory.CreateUIObject("Container", Body);
     UIFactory.SetLayoutGroup<VerticalLayoutGroup>(
       container,
-      forceHeight: false,
-      forceWidth: false,
-      childControlHeight: true,
-      childControlWidth: true,
+      false,
+      true,
+      true,
+      true,
       childAlignment: TextAnchor.LowerCenter
     );
-    UIFactory.SetLayoutElement(container, flexibleHeight: 1);
+    UIFactory.SetLayoutElement(container, flexibleWidth: 1, flexibleHeight: 1);
 
     var button = UIFactory.CreateButton(container, "SpawnButton", "Spawn", Theme.SelectedColor);
-    UIFactory.SetLayoutElement(button.Component.gameObject, 200, 25, 1);
+    UIFactory.SetLayoutElement(button.gameObject, 200, 25, 1);
 
-    button.OnClick += OnSpawnClicked;
+    button.onClick.AddListener(OnSpawnClicked);
   }
 
   private void AddQualityDropdown() {
     var container = UIFactory.CreateUIObject("Container", Body);
     UIFactory.SetLayoutGroup<VerticalLayoutGroup>(
       container,
-      forceHeight: false,
-      forceWidth: false,
-      childControlHeight: true,
-      childControlWidth: true,
-      spacing: 10,
+      false,
+      false,
+      true,
+      true,
+      10,
       padBottom: 20
     );
 
@@ -77,11 +76,11 @@ public class EyesPanel(UIBase owner) : GamePanel(owner) {
       "Quality",
       14,
       OnQualityChanged,
-      GameData.Qualities.Names
+      GameData.Qualities.All.Select(value =>
+        new DropdownOption<Quality>(value.GetNameStr(), value)),
+      GameData.Qualities.Highest
     );
     UIFactory.SetLayoutElement(quality, 200, 25, 1);
-
-    _qualityDropdown.value = GameData.Qualities.Highest.GetValue();
   }
 
   private void AddPowerDropdowns() {
@@ -91,15 +90,16 @@ public class EyesPanel(UIBase owner) : GamePanel(owner) {
     var container = UIFactory.CreateUIObject("Container", Body);
     UIFactory.SetLayoutGroup<VerticalLayoutGroup>(
       container,
-      forceHeight: false,
-      forceWidth: false,
-      childControlHeight: true,
-      childControlWidth: true,
-      spacing: 10,
+      false,
+      false,
+      true,
+      true,
+      10,
       padBottom: 40
     );
 
-    var powers = AbyssPower.prefabs.Select(power => power.GetNameStr()).ToArray();
+    var powers = AbyssPower.prefabs.Select(power =>
+      new DropdownOption<AbyssPower.Name>(power.GetNameStr(), power.name)).ToArray();
     for (var i = 0; i < _powerDropdowns.Length; i++) {
       var dropdown = UIFactory.CreateDropdown(
         container,
@@ -107,15 +107,16 @@ public class EyesPanel(UIBase owner) : GamePanel(owner) {
         out _powerDropdowns[i],
         "Power",
         14,
-        _ => { },
-        powers
+        null,
+        powers,
+        powers.Length > 0 ? powers[0].Value : default
       );
       UIFactory.SetLayoutElement(dropdown, 200, 25, 1);
     }
   }
 
-  private void OnQualityChanged(int qualityIndex) {
-    TogglePowersFromQuality(qualityIndex);
+  private void OnQualityChanged(Quality quality) {
+    TogglePowersFromQuality(quality);
   }
 
   /// <summary>
@@ -127,28 +128,40 @@ public class EyesPanel(UIBase owner) : GamePanel(owner) {
   /// <remarks>
   ///   Called when the selected Quality changes.
   /// </remarks>
-  /// <param name="qualityIndex">The int value of the quality that was selected.</param>
-  private void TogglePowersFromQuality(int qualityIndex) {
-    var quality = GameData.Qualities.FromInt(qualityIndex);
+  /// <param name="quality">The quality that was selected.</param>
+  private void TogglePowersFromQuality(Quality quality) {
     var powerSlots = quality.GetPowerSlots();
 
     for (var i = 0; i < _powerDropdowns.Length; i++) {
-      _powerDropdowns[i]?.gameObject.SetActive(i < powerSlots);
+      _powerDropdowns[i]?.Component.gameObject.SetActive(i < powerSlots);
     }
   }
 
   private void OnSpawnClicked() {
-    var quality = GameData.Qualities.FromInt(_qualityDropdown.value);
+    if (!_qualityDropdown.HasValue ||
+        _powerDropdowns.Take(_qualityDropdown.Value.GetPowerSlots())
+          .Any(binding => binding == null || !binding.HasValue)) {
+      UIManager.SendNotification(Level.Error, "No valid abyss powers are available.");
+      return;
+    }
+
+    var quality = _qualityDropdown.Value;
     var eye = AbyssEye.MakeEmptyAbyssEye(quality);
 
     var powers = _powerDropdowns
       .Take(quality.GetPowerSlots())
-      .Select(it => AbyssPower.prefabs[it.value].name)
+      .Where(it => it is { HasValue: true })
+      .Select(it => it.Value)
       .ToArray();
 
     eye.AddPowers(powers);
 
     Inventory.SpawnAbyssEye(eye);
     UIManager.SendNotification(Level.Success, "Spawned abyss eye!");
+  }
+
+  protected override void OnBodyDestroyed() {
+    _powerDropdowns = null;
+    _qualityDropdown = null;
   }
 }
