@@ -1,19 +1,17 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
+using System.Linq;
 using daymxn.DHG.ItemSpawner.game;
+using daymxn.DHG.ItemSpawner.ui.Native;
 using daymxn.DHG.ItemSpawner.ui.Panels;
 using daymxn.DHG.ItemSpawner.ui.Panels.Spawners;
 using UnityEngine;
-using UniverseLib.UI;
 
 namespace daymxn.DHG.ItemSpawner.ui;
 
 /// <summary>
-///   Root controller for UI related functions.
+///   Root controller for the native item-spawner UI.
 /// </summary>
 public static class UIManager {
-  /// <summary>
-  ///   All the panels shown in the UI.
-  /// </summary>
   public enum Panels {
     Eyes,
     Relics,
@@ -26,59 +24,94 @@ public static class UIManager {
 
   internal static readonly Dictionary<Panels, GamePanel> UIPanels = new();
 
-  private static UIBase UiBase { get; set; }
-  private static GameObject UIRoot => UiBase?.RootObject;
+  private static GameObject _canvasRoot;
+  private static NativeEventSystemBridge _eventSystemBridge;
+  private static bool _initialized;
+  private static bool _reportedCanvasState;
 
-  /// <summary>
-  ///   Sounds loaded by the plugin, which can be played.
-  /// </summary>
   public static Sounds Sounds { get; private set; }
 
-
   internal static void InitUI() {
-    UiBase = UniversalUI.RegisterUI(MyPluginInfo.PLUGIN_GUID, Update);
-    UiBase.RootObject.GetComponent<RectTransform>();
-    Sounds = UiBase.RootObject.AddComponent<Sounds>();
+    if (_initialized) return;
+    _initialized = true;
 
-    UIPanels.Add(Panels.ImageSelectorModal, new ImageSelectorModal(UiBase));
+    _canvasRoot = UIFactory.CreateCanvasRoot($"{MyPluginInfo.PLUGIN_GUID}.UI");
+    _eventSystemBridge = _canvasRoot.AddComponent<NativeEventSystemBridge>();
+    Sounds = _canvasRoot.AddComponent<Sounds>();
 
-    UIPanels.Add(Panels.Notification, new NotificationPanel(UiBase));
-    UIPanels.Add(Panels.Eyes, new EyesPanel(UiBase));
-    UIPanels.Add(Panels.Relics, new RelicsPanel(UiBase));
-    UIPanels.Add(Panels.Slates, new SlatesPanel(UiBase));
-    UIPanels.Add(Panels.Cores, new CoresPanel(UiBase));
+    Register(Panels.ImageSelectorModal, new ImageSelectorModal(_canvasRoot));
+    Register(Panels.Notification, new NotificationPanel(_canvasRoot));
+    Register(Panels.Eyes, new EyesPanel(_canvasRoot));
+    Register(Panels.Relics, new RelicsPanel(_canvasRoot));
+    Register(Panels.Slates, new SlatesPanel(_canvasRoot));
+    Register(Panels.Cores, new CoresPanel(_canvasRoot));
+    Register(Panels.Navbar, new Navbar(_canvasRoot));
 
-    UIPanels.Add(Panels.Navbar, new Navbar(UiBase));
+    var eventSystem = _eventSystemBridge.Current;
+    Plugin.Logger.LogInfo(
+      _eventSystemBridge.IsUsingFallback
+        ? $"Native uGUI initialized with fallback EventSystem '{eventSystem.GetType().FullName}'."
+        : $"Native uGUI initialized; using EventSystem '{eventSystem.GetType().FullName}'.");
+
+    Canvas.ForceUpdateCanvases();
   }
 
-  /// <summary>
-  ///   Get a loaded panel, typecasting it go its specific type.
-  /// </summary>
-  /// <param name="panel">The panel to get.</param>
-  /// <typeparam name="T">The class of the panel to get.</typeparam>
-  /// <returns>The currently loaded panel for the corresponding name and type.</returns>
+  internal static void Update() {
+    if (!_initialized || !_canvasRoot) return;
+    ReportCanvasStateOnce();
+    GameData.Update();
+    foreach (var panel in UIPanels.Values.ToArray()) {
+      panel.RefreshCanvasLayout();
+      if (panel.Enabled) panel.Update();
+    }
+  }
+
+  internal static void Shutdown() {
+    if (!_initialized) return;
+    foreach (var panel in UIPanels.Values.ToArray()) {
+      panel.Dispose();
+    }
+
+    UIPanels.Clear();
+    Sounds = null;
+    _eventSystemBridge = null;
+    if (_canvasRoot) Object.Destroy(_canvasRoot);
+    _canvasRoot = null;
+    _initialized = false;
+    _reportedCanvasState = false;
+  }
+
   public static T GetPanel<T>(Panels panel) where T : GamePanel {
     return GetPanel(panel) as T;
   }
 
-  private static GamePanel GetPanel(Panels panel) {
-    return UIPanels[panel];
-  }
-
-  /// <summary>
-  ///   Sends a notification to display to the user.
-  /// </summary>
-  /// <param name="level">The type of notification to send.</param>
-  /// <param name="message">The text to show in the notification.</param>
-  /// <seealso cref="NotificationPanel" />
   public static void SendNotification(Level level, string message) {
     GetPanel<NotificationPanel>(Panels.Notification)?.SendNotification(level, message);
   }
 
-  private static void Update() {
-    if (!UIRoot)
-      return;
+  internal static void CloseAllDropdowns() {
+    if (_canvasRoot) UIFactory.CloseDropdowns(_canvasRoot);
+  }
 
-    GameData.Update();
+  private static GamePanel GetPanel(Panels panel) {
+    return UIPanels.GetValueOrDefault(panel);
+  }
+
+  private static void Register(Panels id, GamePanel panel) {
+    UIPanels.Add(id, panel);
+    panel.ConstructUI();
+  }
+
+  private static void ReportCanvasStateOnce() {
+    if (_reportedCanvasState) return;
+    _reportedCanvasState = true;
+
+    var canvas = _canvasRoot.GetComponent<Canvas>();
+    var rect = _canvasRoot.GetComponent<RectTransform>();
+    var navbar = GetPanel(Panels.Navbar);
+    Plugin.Logger.LogInfo(
+      $"Native uGUI canvas active={_canvasRoot.activeInHierarchy}, enabled={canvas.enabled}, " +
+      $"size={rect.rect.width:F0}x{rect.rect.height:F0}, screen={Screen.width}x{Screen.height}, " +
+      $"navbarActive={navbar?.Enabled ?? false}, childCount={_canvasRoot.transform.childCount}.");
   }
 }

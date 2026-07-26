@@ -86,14 +86,15 @@ public static class GameData {
   /// </summary>
   public static class Relics {
     private static readonly Lazy<List<Sprite>> LazyIcons = new(() =>
-      Names.Where(it => it != Badge.Name.Max && it != Badge.Name.None)
-        .Select(it => IconManager.Instance.GetBadgeIcon(it)).ToList()
+      Names.Select(it => IconManager.Instance.GetBadgeIcon(it)).ToList()
     );
 
     /// <summary>
     ///   A list of all the Relic names.
     /// </summary>
-    public static readonly List<Badge.Name> Names = Util.GetEnumValues<Badge.Name>();
+    public static readonly List<Badge.Name> Names = Util.GetEnumValues<Badge.Name>()
+      .Where(it => it != Badge.Name.Max && it != Badge.Name.None)
+      .ToList();
 
     /// <summary>
     ///   A list of icons for each Relic.

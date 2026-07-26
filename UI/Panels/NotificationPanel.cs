@@ -1,8 +1,8 @@
 ﻿using System.Collections.Generic;
+using daymxn.DHG.ItemSpawner.ui.Native;
 using daymxn.DHG.ItemSpawner.util;
 using UnityEngine;
 using UnityEngine.UI;
-using UniverseLib.UI;
 
 namespace daymxn.DHG.ItemSpawner.ui.Panels;
 
@@ -27,7 +27,7 @@ public enum Level {
 ///   shown, and automatically disappear after a few seconds.
 /// </remarks>
 /// <seealso cref="SendNotification" />
-public class NotificationPanel(UIBase owner) : GamePanel(owner) {
+public class NotificationPanel(GameObject owner) : GamePanel(owner) {
   /// <summary>
   ///   How long to show a notification for.
   /// </summary>
@@ -40,8 +40,10 @@ public class NotificationPanel(UIBase owner) : GamePanel(owner) {
 
   private bool _open;
   public override string Name => "Notice";
-  public override int MinWidth => 10;
-  public override int MinHeight => 10;
+  public override int MinWidth => 280;
+  public override int MinHeight => 50;
+  public override int DefaultWidth => 340;
+  public override int DefaultHeight => 80;
   public override Vector2 DefaultAnchorMin => new(1f, 0f);
   public override Vector2 DefaultAnchorMax => new(1f, 0f);
   public override bool CanDragAndResize => false;
@@ -51,11 +53,11 @@ public class NotificationPanel(UIBase owner) : GamePanel(owner) {
   protected override Padding RootPadding => Padding.Of(0);
   protected override bool PivotToAnchor => true;
   protected override Vector2 PivotOffset => new(-10, 10);
-  protected override bool IncludeBodyFitter => true;
+  protected override bool ShowTitleBar => false;
 
   protected override void CreateBodyContent() {
-    Object.Destroy(ContentRoot.gameObject.GetComponent<Image>());
-    Object.Destroy(UIRoot.gameObject.GetComponent<Image>());
+    MakeNonBlocking(ContentRoot.GetComponent<Image>());
+    MakeNonBlocking(UIRoot.GetComponent<Image>());
   }
 
   /// <summary>
@@ -77,7 +79,7 @@ public class NotificationPanel(UIBase owner) : GamePanel(owner) {
 
     Object.Destroy(currentNotif.Element);
     _notifications.Dequeue();
-    ForceRebuildLayout();
+    ResizeToContent();
 
     if (_notifications.Count != 0) return;
 
@@ -105,10 +107,22 @@ public class NotificationPanel(UIBase owner) : GamePanel(owner) {
 
     Sounds.Instance.notification.Play();
     _notifications.Enqueue(new ActiveNotification(Time.realtimeSinceStartup, container));
+    ResizeToContent();
   }
 
   private void ToggleVisibility() {
     SetActive(_open);
+  }
+
+  private void ResizeToContent() {
+    if (!Body || !Rect) return;
+    Canvas.ForceUpdateCanvases();
+    var bodyRect = Body.GetComponent<RectTransform>();
+    LayoutRebuilder.ForceRebuildLayoutImmediate(bodyRect);
+    var preferredHeight = LayoutUtility.GetPreferredHeight(bodyRect);
+    Rect.sizeDelta = new Vector2(DefaultWidth,
+      Mathf.Clamp(preferredHeight, MinHeight, 500));
+    ForceRebuildLayout();
   }
 
   private static Color LevelToColor(Level level) {
@@ -119,6 +133,12 @@ public class NotificationPanel(UIBase owner) : GamePanel(owner) {
       Level.Error => Color.red,
       _ => Color.white
     };
+  }
+
+  private static void MakeNonBlocking(Image image) {
+    if (!image) return;
+    image.color = Color.clear;
+    image.raycastTarget = false;
   }
 
   /// <summary>

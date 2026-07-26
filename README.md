@@ -57,16 +57,16 @@ don't have a `plugins` directory, you can go ahead and create one.
 > [!NOTE]
 > The navbar will show after a few seconds at the main menu, but the buttons will be disabled until you load a save.
 
+> [!IMPORTANT]
+> When upgrading from a version that bundled UniverseLib, remove the old `daymxn.DHG.ItemSpawner` plugin folder before
+> extracting the new version. UniverseLib is no longer used or included.
+
 ## [Future Work](#future-work)
 
 There's definitely a few places where I feel like this could be improved upon, or features could be added. A few of such
 cases are:
 
 - Migrate to MVVM.
-- Possibly migrate to different UI framework.
-    * UniverseLib was great for prototyping, but I've found myself fighting with it more than working on features.
-      I'm not sure what the best alternative would be (maybe even writing my own UI library), but it's worth
-      investigating in the future.
 - Add support for selecting and modifying existing items in the player's inventory.
 - Auto complete dropdown for affixes and powers.
 - Some form of affix dropdown that mirrors the game's dropdown for chaos behavior (where it shows the description and

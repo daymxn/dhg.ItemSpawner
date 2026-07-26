@@ -2,7 +2,6 @@
 using System.Collections.Generic;
 using daymxn.DHG.ItemSpawner.game;
 using UnityEngine;
-using UniverseLib.UI;
 using Vector2 = UnityEngine.Vector2;
 
 namespace daymxn.DHG.ItemSpawner.ui.Panels.Spawners;
@@ -10,7 +9,7 @@ namespace daymxn.DHG.ItemSpawner.ui.Panels.Spawners;
 /// <summary>
 ///   Panel for spawning in Hunting Cores.
 /// </summary>
-public class CoresPanel(UIBase owner)
+public class CoresPanel(GameObject owner)
   : AffixSpawningPanel<HuntingCore.Name, HuntingCore>(owner) {
   public override string Name => "Hunting Cores";
   protected override Vector2 PivotOffset => new(1300, -100);

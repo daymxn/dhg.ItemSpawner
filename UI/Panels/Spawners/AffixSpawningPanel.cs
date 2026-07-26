@@ -2,11 +2,11 @@
 using System.Collections.Generic;
 using System.Linq;
 using daymxn.DHG.ItemSpawner.game;
+using daymxn.DHG.ItemSpawner.ui.Native;
 using daymxn.DHG.ItemSpawner.ui.Widgets.Affix;
 using daymxn.DHG.ItemSpawner.ui.Widgets.ImageSelector;
 using UnityEngine;
 using UnityEngine.UI;
-using UniverseLib.UI;
 
 namespace daymxn.DHG.ItemSpawner.ui.Panels.Spawners;
 
@@ -15,13 +15,14 @@ namespace daymxn.DHG.ItemSpawner.ui.Panels.Spawners;
 /// </summary>
 /// <typeparam name="TName">The enum type for the item names.</typeparam>
 /// <typeparam name="TSpawn">The type of item.</typeparam>
-public abstract class AffixSpawningPanel<TName, TSpawn>(UIBase owner)
+public abstract class AffixSpawningPanel<TName, TSpawn>(GameObject owner)
   : GamePanel(owner) where TName : Enum where TSpawn : AffixTaker {
   private GameObject[] _affixSectionObjects;
   private AffixSection[] _affixSections;
-  private ImageSelector _imageSelector;
-  private Dropdown _qualityDropdown;
-  private List<SelectableImage> _selectables;
+  private bool _hasAffixes;
+  private ImageSelector<TName> _imageSelector;
+  private DropdownBinding<Quality> _qualityDropdown;
+  private List<SelectableImage<TName>> _selectables;
 
   /// <summary>
   ///   Name of the spawnable item.
@@ -58,10 +59,12 @@ public abstract class AffixSpawningPanel<TName, TSpawn>(UIBase owner)
   protected abstract Action<TSpawn> SpawnFunction { get; }
 
   public override int MinWidth => 400;
-  public override int MinHeight => 1200;
+  public override int MinHeight => 400;
+  public override int DefaultWidth => 500;
+  public override int DefaultHeight => 900;
   public override Vector2 DefaultAnchorMin => new(0f, 1f);
   public override Vector2 DefaultAnchorMax => new(0f, 1f);
-  protected override bool IncludeBodyFitter => true;
+  protected override bool UseScrollView => true;
   protected override bool PivotToAnchor => true;
   public override bool CanDragAndResize => true;
   public override bool IncludeInNavbar => true;
@@ -77,11 +80,37 @@ public abstract class AffixSpawningPanel<TName, TSpawn>(UIBase owner)
   protected override void CreateBodyContent() {
     _affixSections = new AffixSection[GameData.Qualities.Highest.GetPowerSlots()];
     _affixSectionObjects = new GameObject[_affixSections.Length];
-    _selectables = Icons.Select((image, index) => new SelectableImage(image, index)).ToList();
+    var icons = Icons;
+    var names = Names;
+    var selectableCount = Math.Min(icons.Count, names.Count);
+    if (icons.Count != names.Count) {
+      Plugin.Logger.LogWarning(
+        $"{Name} has {icons.Count} icons but {names.Count} names; checking {selectableCount} matched entries."
+      );
+    }
+
+    _selectables = Enumerable.Range(0, selectableCount)
+      .Where(index => HasUsableIcon(icons[index]))
+      .Select(index => new SelectableImage<TName>(icons[index], names[index]))
+      .ToList();
+    var skippedItemCount = Math.Max(0, names.Count - _selectables.Count);
+    if (skippedItemCount > 0) {
+      Plugin.Logger.LogWarning(
+        $"{Name} skipped {skippedItemCount} item entries without usable icons."
+      );
+    }
+
+    _hasAffixes = AffixPool != null &&
+                  AffixPool.Any(entry => entry.Value is { Count: > 0 });
 
     AddQualityDropdown();
     AddSelectableDropdown();
-    AddAffixSections();
+    if (_hasAffixes) {
+      AddAffixSections();
+    } else {
+      UIFactory.CreateLabel(Body, "MissingAffixes", "No affixes are available.",
+        TextAnchor.MiddleCenter, Color.red);
+    }
     AddSpawnButton();
   }
 
@@ -90,17 +119,18 @@ public abstract class AffixSpawningPanel<TName, TSpawn>(UIBase owner)
     UIFactory.SetLayoutGroup<VerticalLayoutGroup>(
       container,
       forceHeight: false,
-      forceWidth: false,
+      forceWidth: true,
       childControlHeight: true,
       childControlWidth: true,
       childAlignment: TextAnchor.LowerCenter
     );
-    UIFactory.SetLayoutElement(container, flexibleHeight: 1);
+    UIFactory.SetLayoutElement(container, flexibleWidth: 1, flexibleHeight: 1);
 
     var button = UIFactory.CreateButton(container, "SpawnButton", "Spawn", Theme.SelectedColor);
-    UIFactory.SetLayoutElement(button.Component.gameObject, 200, 25, 1);
+    UIFactory.SetLayoutElement(button.gameObject, 200, 25, 1);
 
-    button.OnClick += OnSpawnClicked;
+    button.onClick.AddListener(OnSpawnClicked);
+    button.interactable = _imageSelector != null && _qualityDropdown.HasValue && _hasAffixes;
   }
 
   private void AddQualityDropdown() {
@@ -125,15 +155,21 @@ public abstract class AffixSpawningPanel<TName, TSpawn>(UIBase owner)
       "Quality",
       14,
       OnQualityChanged,
-      GameData.Qualities.Names
+      GameData.Qualities.All.Select(value =>
+        new DropdownOption<Quality>(value.GetNameStr(), value)),
+      GameData.Qualities.Highest
     );
     UIFactory.SetLayoutElement(quality, 200, 25, 1);
-
-    _qualityDropdown.SetValueWithoutNotify(GameData.Qualities.Highest.GetValue());
   }
 
   private void AddSelectableDropdown() {
-    _imageSelector = new ImageSelector(Body, _selectables, SelectableName);
+    if (_selectables.Count == 0) {
+      UIFactory.CreateLabel(Body, "MissingItems", $"No {SelectableName} options are available.",
+        TextAnchor.MiddleCenter, Color.red);
+      return;
+    }
+
+    _imageSelector = new ImageSelector<TName>(Body, _selectables, SelectableName);
   }
 
   private void AddAffixSections() {
@@ -160,10 +196,10 @@ public abstract class AffixSpawningPanel<TName, TSpawn>(UIBase owner)
     }
   }
 
-  private void OnQualityChanged(int qualityIndex) {
-    TogglePowersFromQuality(qualityIndex);
+  private void OnQualityChanged(Quality quality) {
+    if (!_hasAffixes) return;
+    TogglePowersFromQuality(quality);
 
-    var quality = GameData.Qualities.FromInt(qualityIndex);
     foreach (var section in _affixSections) {
       if (section == null) break;
 
@@ -180,9 +216,8 @@ public abstract class AffixSpawningPanel<TName, TSpawn>(UIBase owner)
   /// <remarks>
   ///   Called when the selected Quality changes.
   /// </remarks>
-  /// <param name="qualityIndex">The int value of the quality that was selected.</param>
-  private void TogglePowersFromQuality(int qualityIndex) {
-    var quality = GameData.Qualities.FromInt(qualityIndex);
+  /// <param name="quality">The quality that was selected.</param>
+  private void TogglePowersFromQuality(Quality quality) {
     var powerSlots = quality.GetPowerSlots();
 
     for (var i = 0; i < _affixSectionObjects.Length; i++) {
@@ -191,9 +226,14 @@ public abstract class AffixSpawningPanel<TName, TSpawn>(UIBase owner)
   }
 
   private void OnSpawnClicked() {
-    var quality = GameData.Qualities.FromInt(_qualityDropdown.value);
+    if (_imageSelector == null || !_qualityDropdown.HasValue || !_hasAffixes) {
+      UIManager.SendNotification(Level.Error, $"No {SelectableName} is available to spawn.");
+      return;
+    }
+
+    var quality = _qualityDropdown.Value;
     var powerSlots = quality.GetPowerSlots();
-    var name = Names[_imageSelector.Selected.Value];
+    var name = _imageSelector.Selected.Value;
     var item = CreateEmptyItem(name, quality);
 
     for (var i = 0; i < powerSlots; i++) {
@@ -203,5 +243,18 @@ public abstract class AffixSpawningPanel<TName, TSpawn>(UIBase owner)
 
     SpawnFunction(item);
     UIManager.SendNotification(Level.Success, $"Spawned {SelectableName}!");
+  }
+
+  protected override void OnBodyDestroyed() {
+    _affixSectionObjects = null;
+    _affixSections = null;
+    _hasAffixes = false;
+    _imageSelector = null;
+    _qualityDropdown = null;
+    _selectables = null;
+  }
+
+  private static bool HasUsableIcon(Sprite icon) {
+    return icon && icon.texture;
   }
 }
